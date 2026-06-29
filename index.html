@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>WFFL World Cup Draft Tracker</title>
+  
+  <!-- Google Fonts: Sora & Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Tailwind Configuration Override -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            display: ['Sora', 'sans-serif'],
+          },
+          colors: {
+            slate: {
+              950: '#0b0f19',
+              900: '#111827',
+              800: '#1f2937',
+              700: '#374151',
+            },
+            emerald: {
+              500: '#10b981',
+              600: '#059669',
+              400: '#34d399',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- External Custom Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen pb-16 selection:bg-emerald-500/30 radial-bg">
+
+  <!-- Main Mobile-Optimized Wrapper -->
+  <div class="max-w-md mx-auto px-4 pt-6">
+
+    <!-- Top Sync Banner -->
+    <div class="flex items-center justify-between bg-slate-900/80 border border-slate-800/80 rounded-2xl px-4 py-2.5 mb-6 glass-card">
+      <div class="flex items-center gap-2">
+        <span class="relative flex h-2 w-2">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 pulse-dot"></span>
+        </span>
+        <span id="sync-status" class="text-xs font-semibold text-emerald-400 tracking-wide uppercase">Live Syncing</span>
+      </div>
+      <div class="flex items-center gap-3 text-slate-400 text-xs font-medium">
+        <span id="last-synced">Syncing...</span>
+        <span id="sync-countdown" class="bg-slate-800 px-2 py-0.5 rounded-md text-[10px] text-slate-300 font-mono">Sync in 30s</span>
+      </div>
+    </div>
+
+    <!-- Title & Logo -->
+    <div class="text-center mb-6">
+      <div class="inline-flex items-center justify-center bg-gradient-to-br from-emerald-400/20 to-teal-500/10 p-3.5 rounded-3xl border border-emerald-500/20 mb-3.5 shadow-lg shadow-emerald-950/20">
+        <span class="text-3xl">🏆</span>
+      </div>
+      <h1 class="font-display font-extrabold text-2xl tracking-tight bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-200 bg-clip-text text-transparent">
+        WFFL World Cup
+      </h1>
+      <p class="text-xs text-slate-400 font-medium tracking-wide mt-1.5 uppercase">
+        Fantasy Football Draft Tracker • 2026
+      </p>
+    </div>
+
+    <!-- Stats Carousel / Quick Summary Grid -->
+    <div class="grid grid-cols-3 gap-2.5 mb-6">
+      <!-- Leader Card -->
+      <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-2.5 text-center glass-card">
+        <div class="text-[9px] uppercase tracking-wider text-slate-500 font-bold mb-0.5">LEADER</div>
+        <div id="summary-leader" class="text-xs font-bold text-slate-200 truncate">-</div>
+        <div id="summary-leader-pts" class="text-[10px] font-semibold text-emerald-400 mt-0.5">-</div>
+      </div>
+      <!-- Matches Card -->
+      <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-2.5 text-center glass-card">
+        <div class="text-[9px] uppercase tracking-wider text-slate-500 font-bold mb-0.5">MATCHES</div>
+        <div id="summary-matches" class="text-xs font-bold text-slate-200">-</div>
+        <div class="text-[10px] font-semibold text-slate-400 mt-0.5">completed</div>
+      </div>
+      <!-- Goals Card -->
+      <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-2.5 text-center glass-card">
+        <div class="text-[9px] uppercase tracking-wider text-slate-500 font-bold mb-0.5">TOTAL GOALS</div>
+        <div id="summary-goals" class="text-xs font-bold text-slate-200">-</div>
+        <div class="text-[10px] font-semibold text-blue-400 mt-0.5">scored</div>
+      </div>
+    </div>
+
+    <!-- Search Input -->
+    <div class="relative mb-5">
+      <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+        <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+        </svg>
+      </div>
+      <input type="text" id="search-input" placeholder="Search managers or countries..." 
+        class="w-full pl-10 pr-10 py-3 rounded-2xl text-sm font-medium glass-input text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all">
+      <button id="search-clear" class="absolute inset-y-0 right-0 pr-3.5 flex items-center hidden hover:text-slate-200 text-slate-500">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Table Header -->
+    <div class="px-5 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between border-b border-slate-800/60 mb-2">
+      <div class="flex items-center gap-6">
+        <span class="w-5 text-center">RK</span>
+        <span>PARTICIPANT</span>
+      </div>
+      <span>TOTAL PTS</span>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loading-state" class="flex flex-col items-center justify-center py-16">
+      <svg class="animate-spin h-8 w-8 text-emerald-400 mb-3" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+      <span class="text-xs text-slate-400 font-medium">Fetching live World Cup tournament data...</span>
+    </div>
+
+    <!-- Error Toast -->
+    <div id="error-banner" class="hidden mb-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-400 flex items-start gap-2.5">
+      <svg class="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+      </svg>
+      <div>
+        <p class="font-bold">Sync Error</p>
+        <p class="text-[11px] text-rose-400/80">Could not refresh tournament data. Displaying cached results.</p>
+      </div>
+    </div>
+
+    <!-- Leaderboard Rows Container -->
+    <div id="leaderboard-container" class="space-y-2.5">
+      <!-- Populated dynamically by javascript -->
+    </div>
+
+    <!-- Empty State -->
+    <div id="empty-state" class="hidden text-center py-12 text-slate-500">
+      <svg class="w-12 h-12 mx-auto mb-3 opacity-40 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+      </svg>
+      <p class="text-sm font-semibold">No matches found</p>
+      <p class="text-xs text-slate-500/80 mt-1">Try searching for a different name.</p>
+    </div>
+
+    <!-- Small Footer -->
+    <div class="text-center mt-12 text-[10px] text-slate-600 font-medium space-y-1">
+      <p>Data automatically fetched from openfootball/worldcup.json</p>
+      <p>WFFL © 2026 • Designed for Mobile • <a href="https://github.com/openfootball" target="_blank" class="hover:underline text-slate-500">GitHub Pages Friendly</a></p>
+    </div>
+
+  </div>
+
+  <!-- External Custom Logic -->
+  <script src="app.js" defer></script>
+</body>
+</html>
