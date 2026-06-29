@@ -29,11 +29,24 @@
   }
 }
 
-/* Accordion content transition container */
-.accordion-content {
-  transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s ease;
-  max-height: 0;
+/* Accordion content grid transition (No inline maxHeight styles needed) */
+.accordion-wrapper {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.accordion-wrapper.is-open {
+  grid-template-rows: 1fr;
+}
+
+.accordion-inner {
   overflow: hidden;
+}
+
+/* Accordion chevron rotation (No inline transform styles needed) */
+.rotate-180 {
+  transform: rotate(180deg);
 }
 
 /* Custom Scrollbar styles */

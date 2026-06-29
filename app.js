@@ -78,11 +78,21 @@ function formatDisplayRound(round) {
   return round;
 }
 
-// App state
+// Escapes special characters to prevent HTML/XSS injection
+function escapeHTML(str) {
+  if (!str) return "";
+  return String(str).replace(/[&<>"']/g, function (m) {
+    switch (m) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      case "'": return '&#039;';
+    }
+  });
+}
+
 let leaderboardData = [];
-let secondsLeft = 30;
-let syncTimer = null;
-let countdownTimer = null;
 
 // Load initial data from localStorage if exists
 function loadCache() {
@@ -100,25 +110,6 @@ function loadCache() {
   } catch(e) {
     console.error("Failed to load cache:", e);
   }
-}
-
-// Initialize timers
-function initTimers() {
-  if (syncTimer) clearInterval(syncTimer);
-  if (countdownTimer) clearInterval(countdownTimer);
-  
-  secondsLeft = 30;
-  document.getElementById('sync-countdown').innerText = `Sync in ${secondsLeft}s`;
-  
-  countdownTimer = setInterval(() => {
-    secondsLeft--;
-    if (secondsLeft < 0) {
-      secondsLeft = 30;
-    }
-    document.getElementById('sync-countdown').innerText = `Sync in ${secondsLeft}s`;
-  }, 1000);
-
-  syncTimer = setInterval(fetchData, 30000);
 }
 
 // Fetch World Cup data from openfootball API
@@ -357,9 +348,6 @@ function processTournamentData(data) {
     p.rank = rank;
   });
 
-  // Generate customized tiebreaker text snippets
-  generateTiebreakerTexts();
-
   // Cache locally
   try {
     localStorage.setItem('wffl_worldcup_leaderboard', JSON.stringify(leaderboardData));
@@ -379,7 +367,7 @@ function processTournamentData(data) {
   renderLeaderboard();
 }
 
-// Tiebreaker sorting comparator for details check
+// Generate explanations for all participants tied on points
 function compareTiebreakers(a, b) {
   if (b.totalPoints !== a.totalPoints) {
     return b.totalPoints - a.totalPoints;
@@ -393,64 +381,6 @@ function compareTiebreakers(a, b) {
   return 0; // Completely tied
 }
 
-// Generate explanations for all participants tied on points
-function generateTiebreakerTexts() {
-  leaderboardData.forEach(p => {
-    const tiedWith = leaderboardData.filter(o => o.name !== p.name && o.totalPoints === p.totalPoints);
-    if (tiedWith.length === 0) {
-      p.tiebreakerExplanationHTML = "";
-      return;
-    }
-
-    let html = `
-      <div class="mt-3.5 p-3.5 bg-slate-950/60 border border-slate-800 rounded-xl text-xs text-slate-300">
-        <div class="font-bold text-emerald-400 mb-2 flex items-center gap-1.5 uppercase tracking-wider text-[10px]">
-          <svg class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-          </svg>
-          Tiebreaker Analysis (Tied at ${p.totalPoints} pts)
-        </div>
-        <ul class="space-y-2 list-none pl-0">
-    `;
-
-    tiedWith.forEach(o => {
-      let reason = "";
-      const diff = compareTiebreakers(p, o);
-      const signP = p.totalGD > 0 ? "+" : "";
-      const signO = o.totalGD > 0 ? "+" : "";
-      
-      if (diff < 0) {
-        // p is ranked HIGHER than o
-        if (p.totalGoals !== o.totalGoals) {
-          reason = `<span class="text-emerald-400 font-bold">wins</span> the tiebreaker over <span class="text-slate-100 font-semibold">${o.name}</span> on total goals scored (${p.totalGoals} vs ${o.totalGoals}).`;
-        } else {
-          reason = `<span class="text-emerald-400 font-bold">wins</span> the tiebreaker over <span class="text-slate-100 font-semibold">${o.name}</span> on goal differential (${signP}${p.totalGD} vs ${signO}${o.totalGD}) because they have the same total goals (${p.totalGoals}).`;
-        }
-      } else if (diff > 0) {
-        // p is ranked LOWER than o
-        if (p.totalGoals !== o.totalGoals) {
-          reason = `<span class="text-rose-400 font-bold">loses</span> the tiebreaker to <span class="text-slate-100 font-semibold">${o.name}</span> because ${o.name} has more total goals (${o.totalGoals} vs ${p.totalGoals}).`;
-        } else {
-          reason = `<span class="text-rose-400 font-bold">loses</span> the tiebreaker to <span class="text-slate-100 font-semibold">${o.name}</span> on goal differential (${signP}${p.totalGD} vs ${signO}${o.totalGD}) with equal goals (${p.totalGoals}).`;
-        }
-      } else {
-        // Completely tied
-        reason = `<span class="text-amber-400 font-semibold">is completely tied</span> with <span class="text-slate-100 font-semibold">${o.name}</span> (same goals: ${p.totalGoals}, GD: ${signP}${p.totalGD}).`;
-      }
-
-      html += `
-        <li class="flex items-start gap-1.5 text-[11px] leading-relaxed">
-          <span class="text-slate-500 mt-0.5">•</span>
-          <span>${p.name} ${reason}</span>
-        </li>
-      `;
-    });
-
-    html += `</ul></div>`;
-    p.tiebreakerExplanationHTML = html;
-  });
-}
-
 // Update Quick Stats widgets
 function updateSummaryCards(summary) {
   document.getElementById('summary-leader').innerText = summary.leaderName;
@@ -459,7 +389,7 @@ function updateSummaryCards(summary) {
   document.getElementById('summary-goals').innerText = summary.totalGoals;
 }
 
-// Render leaderboard rows to DOM
+// Render leaderboard rows to DOM (Using template cloning & DOM APIs to avoid innerHTML)
 function renderLeaderboard() {
   const container = document.getElementById('leaderboard-container');
   const searchQuery = document.getElementById('search-input').value.toLowerCase().trim();
@@ -472,196 +402,244 @@ function renderLeaderboard() {
     return matchesName || matchesTeam1 || matchesTeam2;
   });
 
+  // Clear previous rows safely without innerHTML
+  container.textContent = '';
+
   if (filtered.length === 0 && leaderboardData.length > 0) {
     document.getElementById('empty-state').classList.remove('hidden');
-    container.innerHTML = '';
     return;
   } else {
     document.getElementById('empty-state').classList.add('hidden');
   }
 
-  container.innerHTML = filtered.map(p => {
+  const template = document.getElementById('leaderboard-row-template');
+
+  filtered.forEach(p => {
+    const clone = template.content.cloneNode(true);
+    
+    const row = clone.querySelector('.leaderboard-item');
+    const rowHeader = clone.querySelector('.row-header');
+    const rankBadge = clone.querySelector('.rank-badge');
+    const managerText = clone.querySelector('.manager-text');
+    const activeBadge = clone.querySelector('.active-badge');
+    const teamsSubtext = clone.querySelector('.teams-subtext');
+    const pointsVal = clone.querySelector('.points-val');
+    const chevron = clone.querySelector('.accordion-chevron');
+
     const team1 = p.teams[0];
     const team2 = p.teams[1];
     
     const flag1 = FLAG_MAP[team1.name] || "🏳️";
     const flag2 = FLAG_MAP[team2.name] || "🏳️";
-    
-    // Stylize ranks
-    let rankBadgeClass = "bg-slate-800 text-slate-300";
-    let rankBadgeContent = p.rank;
-    let rowBorderClass = "border-slate-800/60";
-    
+
+    // Set rank styling
+    rankBadge.textContent = p.rank;
     if (p.rank === 1) {
-      rankBadgeClass = "bg-gradient-to-br from-amber-300 to-yellow-500 text-slate-950 font-bold";
-      rowBorderClass = "border-yellow-500/20";
+      rankBadge.className = "rank-badge w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold bg-gradient-to-br from-amber-300 to-yellow-500 text-slate-950 font-bold";
+      row.className = "leaderboard-item bg-slate-900/60 border border-yellow-500/20 rounded-2xl overflow-hidden glass-card transition-all duration-200";
     } else if (p.rank === 2) {
-      rankBadgeClass = "bg-gradient-to-br from-slate-300 to-slate-400 text-slate-950 font-bold";
-      rowBorderClass = "border-slate-400/20";
+      rankBadge.className = "rank-badge w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold bg-gradient-to-br from-slate-300 to-slate-400 text-slate-950 font-bold";
+      row.className = "leaderboard-item bg-slate-900/60 border border-slate-400/20 rounded-2xl overflow-hidden glass-card transition-all duration-200";
     } else if (p.rank === 3) {
-      rankBadgeClass = "bg-gradient-to-br from-amber-600 to-amber-700 text-slate-100 font-bold";
-      rowBorderClass = "border-amber-700/20";
-    }
-
-    const gd1 = team1.gd > 0 ? `+${team1.gd}` : team1.gd;
-    const gd2 = team2.gd > 0 ? `+${team2.gd}` : team2.gd;
-    
-    const team1EliminatedClass = team1.eliminated ? 'opacity-40 line-through decoration-rose-500/50' : '';
-    const team2EliminatedClass = team2.eliminated ? 'opacity-40 line-through decoration-rose-500/50' : '';
-    
-    const activeCount = (!team1.eliminated ? 1 : 0) + (!team2.eliminated ? 1 : 0);
-    let activeBadgeHTML = '';
-    if (activeCount === 2) {
-      activeBadgeHTML = `<span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-bold px-1.5 py-0.5 rounded-md ml-2 uppercase">2 Active</span>`;
-    } else if (activeCount === 1) {
-      activeBadgeHTML = `<span class="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[9px] font-bold px-1.5 py-0.5 rounded-md ml-2 uppercase">1 Active</span>`;
+      rankBadge.className = "rank-badge w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold bg-gradient-to-br from-amber-600 to-amber-700 text-slate-100 font-bold";
+      row.className = "leaderboard-item bg-slate-900/60 border border-amber-700/20 rounded-2xl overflow-hidden glass-card transition-all duration-200";
     } else {
-      activeBadgeHTML = `<span class="bg-slate-800 text-slate-500 border border-slate-700/50 text-[9px] font-bold px-1.5 py-0.5 rounded-md ml-2 uppercase">Out</span>`;
+      rankBadge.className = "rank-badge w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold bg-slate-800 text-slate-300";
+      row.className = "leaderboard-item bg-slate-900/60 border border-slate-800/60 rounded-2xl overflow-hidden glass-card transition-all duration-200";
     }
 
-    return `
-      <div class="bg-slate-900/60 border ${rowBorderClass} rounded-2xl overflow-hidden glass-card transition-all duration-200">
+    // Set manager details
+    managerText.textContent = p.name;
+    pointsVal.textContent = p.totalPoints;
+
+    // Active badge
+    const activeCount = (!team1.eliminated ? 1 : 0) + (!team2.eliminated ? 1 : 0);
+    if (activeCount === 2) {
+      activeBadge.textContent = "2 Active";
+      activeBadge.className = "active-badge ml-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase";
+    } else if (activeCount === 1) {
+      activeBadge.textContent = "1 Active";
+      activeBadge.className = "active-badge ml-2 bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase";
+    } else {
+      activeBadge.textContent = "Out";
+      activeBadge.className = "active-badge ml-2 bg-slate-800 text-slate-500 border border-slate-700/50 text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase";
+    }
+
+    // Teams subtext
+    teamsSubtext.textContent = `${flag1} ${team1.name} • ${flag2} ${team2.name}`;
+
+    // Team A Card
+    clone.querySelector('.team-a-flag').textContent = flag1;
+    const teamANameNode = clone.querySelector('.team-a-name');
+    teamANameNode.textContent = team1.name;
+    if (team1.eliminated) {
+      teamANameNode.className = "team-a-name font-bold text-slate-200 text-xs tracking-tight truncate opacity-40 line-through decoration-rose-500/50";
+    } else {
+      teamANameNode.className = "team-a-name font-bold text-slate-200 text-xs tracking-tight truncate";
+    }
+    clone.querySelector('.team-a-round').textContent = escapeHTML(formatDisplayRound(team1.round));
+    
+    const teamAStatusNode = clone.querySelector('.team-a-status');
+    if (team1.eliminated) {
+      teamAStatusNode.textContent = 'OUT';
+      teamAStatusNode.className = 'team-a-status font-bold px-1 rounded text-[8px] uppercase bg-rose-950/40 border border-rose-900/50 text-rose-400';
+    } else {
+      teamAStatusNode.textContent = 'ALIVE';
+      teamAStatusNode.className = 'team-a-status font-bold px-1 rounded text-[8px] uppercase bg-emerald-950/40 border border-emerald-900/50 text-emerald-400';
+    }
+    clone.querySelector('.team-a-pts').textContent = `+${team1.points}`;
+    clone.querySelector('.team-a-goals').textContent = team1.goals;
+    
+    const gd1 = team1.gd > 0 ? `+${team1.gd}` : team1.gd;
+    const teamAGDNode = clone.querySelector('.team-a-gd');
+    teamAGDNode.textContent = gd1;
+    teamAGDNode.className = `team-a-gd text-xs font-bold ${team1.gd > 0 ? 'text-blue-400' : team1.gd < 0 ? 'text-rose-400' : 'text-slate-400'}`;
+
+    // Team B Card
+    clone.querySelector('.team-b-flag').textContent = flag2;
+    const teamBNameNode = clone.querySelector('.team-b-name');
+    teamBNameNode.textContent = team2.name;
+    if (team2.eliminated) {
+      teamBNameNode.className = "team-b-name font-bold text-slate-200 text-xs tracking-tight truncate opacity-40 line-through decoration-rose-500/50";
+    } else {
+      teamBNameNode.className = "team-b-name font-bold text-slate-200 text-xs tracking-tight truncate";
+    }
+    clone.querySelector('.team-b-round').textContent = escapeHTML(formatDisplayRound(team2.round));
+    
+    const teamBStatusNode = clone.querySelector('.team-b-status');
+    if (team2.eliminated) {
+      teamBStatusNode.textContent = 'OUT';
+      teamBStatusNode.className = 'team-b-status font-bold px-1 rounded text-[8px] uppercase bg-rose-950/40 border border-rose-900/50 text-rose-400';
+    } else {
+      teamBStatusNode.textContent = 'ALIVE';
+      teamBStatusNode.className = 'team-b-status font-bold px-1 rounded text-[8px] uppercase bg-emerald-950/40 border border-emerald-900/50 text-emerald-400';
+    }
+    clone.querySelector('.team-b-pts').textContent = `+${team2.points}`;
+    clone.querySelector('.team-b-goals').textContent = team2.goals;
+    
+    const gd2 = team2.gd > 0 ? `+${team2.gd}` : team2.gd;
+    const teamBGDNode = clone.querySelector('.team-b-gd');
+    teamBGDNode.textContent = gd2;
+    teamBGDNode.className = `team-b-gd text-xs font-bold ${team2.gd > 0 ? 'text-blue-400' : team2.gd < 0 ? 'text-rose-400' : 'text-slate-400'}`;
+
+    // Combined summary
+    clone.querySelector('.combined-goals').textContent = p.totalGoals;
+    const combinedGDVal = p.totalGD > 0 ? `+${p.totalGD}` : p.totalGD;
+    clone.querySelector('.combined-gd').textContent = combinedGDVal;
+
+    // Tiebreaker Analysis (Safely constructed using DOM nodes to avoid innerHTML)
+    const tiedWith = leaderboardData.filter(o => o.name !== p.name && o.totalPoints === p.totalPoints);
+    const tiebreakerWrapper = clone.querySelector('.tiebreaker-wrapper');
+    if (tiedWith.length > 0) {
+      tiebreakerWrapper.classList.remove('hidden');
+      clone.querySelector('.tiebreaker-pts-val').textContent = p.totalPoints;
+      
+      const listContainer = clone.querySelector('.tiebreaker-list');
+      listContainer.textContent = ''; // clear
+
+      tiedWith.forEach(o => {
+        const li = document.createElement('li');
+        li.className = 'flex items-start gap-1.5 text-[11px] leading-relaxed';
+
+        const dot = document.createElement('span');
+        dot.className = 'text-slate-500 mt-0.5';
+        dot.textContent = '•';
+
+        const sentenceSpan = document.createElement('span');
         
-        <!-- Row Click Header -->
-        <div class="flex items-center justify-between px-4 py-4 cursor-pointer hover:bg-slate-800/25 active:bg-slate-800/40 select-none transition-all" onclick="toggleParticipantRow(this)">
-          <div class="flex items-center gap-4">
-            <span class="w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold ${rankBadgeClass}">${rankBadgeContent}</span>
-            <div class="flex flex-col">
-              <span class="font-bold text-slate-100 text-sm tracking-tight flex items-center">
-                ${p.name}
-                ${activeBadgeHTML}
-              </span>
-              <span class="text-[10px] text-slate-400 font-semibold tracking-wide mt-0.5 flex gap-1 items-center">
-                ${flag1} ${team1.name} • ${flag2} ${team2.name}
-              </span>
-            </div>
-          </div>
+        const mainManagerName = document.createElement('span');
+        mainManagerName.textContent = p.name + ' ';
+
+        const verbSpan = document.createElement('span');
+        const diff = compareTiebreakers(p, o);
+        const signP = p.totalGD > 0 ? "+" : "";
+        const signO = o.totalGD > 0 ? "+" : "";
+
+        const oppName = document.createElement('span');
+        oppName.className = 'text-slate-100 font-semibold';
+        oppName.textContent = o.name;
+
+        if (diff < 0) {
+          verbSpan.className = 'text-emerald-400 font-bold';
+          verbSpan.textContent = 'wins';
           
-          <div class="flex items-center gap-3">
-            <div class="bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/25 px-3 py-1 rounded-full text-xs shadow-inner shadow-emerald-500/5">
-              ${p.totalPoints} <span class="text-[9px] font-medium text-emerald-500/80">PTS</span>
-            </div>
-            <svg class="w-4 h-4 text-slate-500 transition-transform duration-300 accordion-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path>
-            </svg>
-          </div>
-        </div>
+          sentenceSpan.appendChild(mainManagerName);
+          sentenceSpan.appendChild(verbSpan);
+          sentenceSpan.appendChild(document.createTextNode(' the tiebreaker over '));
+          sentenceSpan.appendChild(oppName);
+          
+          if (p.totalGoals !== o.totalGoals) {
+            sentenceSpan.appendChild(document.createTextNode(` on total goals scored (${p.totalGoals} vs ${o.totalGoals}).`));
+          } else {
+            sentenceSpan.appendChild(document.createTextNode(` on goal differential (${signP}${p.totalGD} vs ${signO}${o.totalGD}) because they have the same total goals (${p.totalGoals}).`));
+          }
+        } else if (diff > 0) {
+          verbSpan.className = 'text-rose-400 font-bold';
+          verbSpan.textContent = 'loses';
 
-        <!-- Accordion Drawer -->
-        <div class="accordion-content bg-slate-950/40 border-t border-slate-900/50">
-          <div class="px-4 pb-4 pt-1 space-y-4">
-            
-            <!-- Grid of 2 Drafted Teams -->
-            <div class="grid grid-cols-2 gap-3">
-              
-              <!-- Team A Card -->
-              <div class="bg-slate-900/40 border border-slate-800/80 rounded-xl p-3 flex flex-col justify-between">
-                <div>
-                  <div class="flex items-center gap-2 mb-1.5 truncate">
-                    <span class="text-2xl flex-shrink-0">${flag1}</span>
-                    <span class="font-bold text-slate-200 text-xs tracking-tight truncate ${team1EliminatedClass}">${team1.name}</span>
-                  </div>
-                  <div class="text-[10px] text-slate-400 flex flex-wrap gap-1 items-center font-medium">
-                    Round: <span class="bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded text-[9px] font-semibold">${formatDisplayRound(team1.round)}</span>
-                    ${team1.eliminated ? '<span class="bg-rose-950/40 border border-rose-900/50 text-rose-400 font-bold px-1 rounded text-[8px] uppercase">OUT</span>' : '<span class="bg-emerald-950/40 border border-emerald-900/50 text-emerald-400 font-bold px-1 rounded text-[8px] uppercase">ALIVE</span>'}
-                  </div>
-                </div>
-                <div class="grid grid-cols-3 gap-1 mt-3.5 pt-2 border-t border-slate-800 text-center">
-                  <div>
-                    <div class="text-[9px] uppercase tracking-wider text-slate-500 font-bold">PTS</div>
-                    <div class="text-xs font-bold text-emerald-400">+${team1.points}</div>
-                  </div>
-                  <div>
-                    <div class="text-[9px] uppercase tracking-wider text-slate-500 font-bold">GLS</div>
-                    <div class="text-xs font-bold text-slate-200">${team1.goals}</div>
-                  </div>
-                  <div>
-                    <div class="text-[9px] uppercase tracking-wider text-slate-500 font-bold">GD</div>
-                    <div class="text-xs font-bold ${team1.gd > 0 ? 'text-blue-400' : team1.gd < 0 ? 'text-rose-400' : 'text-slate-400'}">${gd1}</div>
-                  </div>
-                </div>
-              </div>
+          sentenceSpan.appendChild(mainManagerName);
+          sentenceSpan.appendChild(verbSpan);
+          sentenceSpan.appendChild(document.createTextNode(' the tiebreaker to '));
+          sentenceSpan.appendChild(oppName);
 
-              <!-- Team B Card -->
-              <div class="bg-slate-900/40 border border-slate-800/80 rounded-xl p-3 flex flex-col justify-between">
-                <div>
-                  <div class="flex items-center gap-2 mb-1.5 truncate">
-                    <span class="text-2xl flex-shrink-0">${flag2}</span>
-                    <span class="font-bold text-slate-200 text-xs tracking-tight truncate ${team2EliminatedClass}">${team2.name}</span>
-                  </div>
-                  <div class="text-[10px] text-slate-400 flex flex-wrap gap-1 items-center font-medium">
-                    Round: <span class="bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded text-[9px] font-semibold">${formatDisplayRound(team2.round)}</span>
-                    ${team2.eliminated ? '<span class="bg-rose-950/40 border border-rose-900/50 text-rose-400 font-bold px-1 rounded text-[8px] uppercase">OUT</span>' : '<span class="bg-emerald-950/40 border border-emerald-900/50 text-emerald-400 font-bold px-1 rounded text-[8px] uppercase">ALIVE</span>'}
-                  </div>
-                </div>
-                <div class="grid grid-cols-3 gap-1 mt-3.5 pt-2 border-t border-slate-800 text-center">
-                  <div>
-                    <div class="text-[9px] uppercase tracking-wider text-slate-500 font-bold">PTS</div>
-                    <div class="text-xs font-bold text-emerald-400">+${team2.points}</div>
-                  </div>
-                  <div>
-                    <div class="text-[9px] uppercase tracking-wider text-slate-500 font-bold">GLS</div>
-                    <div class="text-xs font-bold text-slate-200">${team2.goals}</div>
-                  </div>
-                  <div>
-                    <div class="text-[9px] uppercase tracking-wider text-slate-500 font-bold">GD</div>
-                    <div class="text-xs font-bold ${team2.gd > 0 ? 'text-blue-400' : team2.gd < 0 ? 'text-rose-400' : 'text-slate-400'}">${gd2}</div>
-                  </div>
-                </div>
-              </div>
+          if (p.totalGoals !== o.totalGoals) {
+            sentenceSpan.appendChild(document.createTextNode(` because ${o.name} has more total goals (${o.totalGoals} vs ${p.totalGoals}).`));
+          } else {
+            sentenceSpan.appendChild(document.createTextNode(` on goal differential (${signP}${p.totalGD} vs ${signO}${o.totalGD}) with equal goals (${p.totalGoals}).`));
+          }
+        } else {
+          verbSpan.className = 'text-amber-400 font-semibold';
+          verbSpan.textContent = 'is completely tied';
+          
+          sentenceSpan.appendChild(mainManagerName);
+          sentenceSpan.appendChild(verbSpan);
+          sentenceSpan.appendChild(document.createTextNode(' with '));
+          sentenceSpan.appendChild(oppName);
+          sentenceSpan.appendChild(document.createTextNode(` (same goals: ${p.totalGoals}, GD: ${signP}${p.totalGD}).`));
+        }
 
-            </div>
+        li.appendChild(dot);
+        li.appendChild(sentenceSpan);
+        listContainer.appendChild(li);
+      });
+    }
 
-            <!-- Combined Summary Card Stats -->
-            <div class="grid grid-cols-2 gap-4 py-2 px-3 bg-slate-900/40 border border-slate-800/80 rounded-xl text-[10px] font-medium text-slate-400">
-              <div class="flex justify-between items-center">
-                <span>Combined Goals:</span>
-                <span class="font-bold text-slate-200 text-xs">${p.totalGoals}</span>
-              </div>
-              <div class="flex justify-between items-center border-l border-slate-800 pl-4">
-                <span>Combined GD:</span>
-                <span class="font-bold text-slate-200 text-xs">${p.totalGD > 0 ? '+' + p.totalGD : p.totalGD}</span>
-              </div>
-            </div>
+    // Bind event listener for the rowHeader
+    rowHeader.addEventListener('click', () => {
+      toggleParticipantRow(rowHeader);
+    });
 
-            <!-- Dynamic Tiebreaker Alert Section -->
-            ${p.tiebreakerExplanationHTML || ''}
-
-          </div>
-        </div>
-
-      </div>
-    `;
-  }).join('');
+    container.appendChild(clone);
+  });
 }
 
-// Toggle row detail panel (Single Expand Mode)
-function toggleParticipantRow(element) {
-  const container = element.parentElement;
-  const content = element.nextElementSibling;
-  const chevron = element.querySelector('.accordion-chevron');
+// Toggle row detail panel (Single Expand Mode - Pure CSS Class Based, no inline styles!)
+function toggleParticipantRow(headerElement) {
+  const item = headerElement.parentElement;
+  const content = item.querySelector('.accordion-wrapper');
+  const chevron = headerElement.querySelector('.accordion-chevron');
   
-  const isOpen = content.style.maxHeight !== '0px' && content.style.maxHeight !== '';
+  const isOpen = content.classList.contains('is-open');
 
   // Collapse all other accordion cards
-  document.querySelectorAll('.accordion-content').forEach(el => {
+  document.querySelectorAll('.accordion-wrapper').forEach(el => {
     if (el !== content) {
-      el.style.maxHeight = '0px';
+      el.classList.remove('is-open');
       const otherChevron = el.previousElementSibling.querySelector('.accordion-chevron');
-      if (otherChevron) otherChevron.style.transform = 'rotate(0deg)';
+      if (otherChevron) otherChevron.classList.remove('rotate-180');
       el.parentElement.classList.remove('ring-1', 'ring-emerald-500/20');
     }
   });
 
   // Toggle current
   if (!isOpen) {
-    content.style.maxHeight = content.scrollHeight + 'px';
-    if (chevron) chevron.style.transform = 'rotate(180deg)';
-    container.classList.add('ring-1', 'ring-emerald-500/20');
+    content.classList.add('is-open');
+    if (chevron) chevron.classList.add('rotate-180');
+    item.classList.add('ring-1', 'ring-emerald-500/20');
   } else {
-    content.style.maxHeight = '0px';
-    if (chevron) chevron.style.transform = 'rotate(0deg)';
-    container.classList.remove('ring-1', 'ring-emerald-500/20');
+    content.classList.remove('is-open');
+    if (chevron) chevron.classList.remove('rotate-180');
+    item.classList.remove('ring-1', 'ring-emerald-500/20');
   }
 }
 
@@ -688,5 +666,4 @@ searchClear.addEventListener('click', () => {
 window.addEventListener('DOMContentLoaded', () => {
   loadCache();
   fetchData();
-  initTimers();
 });
