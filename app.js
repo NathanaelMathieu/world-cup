@@ -116,13 +116,13 @@ function loadCache() {
 async function fetchData() {
   const banner = document.getElementById('error-banner');
   try {
-    const res = await fetch("https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json");
+    const res = await fetch("https://raw.githubusercontent.com/upbound-web/worldcup-live.json/master/2026/worldcup.json");
     if (!res.ok) throw new Error("Network response was not ok");
-    
+
     const data = await res.json();
     processTournamentData(data);
     banner.classList.add('hidden');
-    
+
     // Update sync time
     const now = new Date();
     const timeString = now.toTimeString().split(' ')[0];
@@ -140,7 +140,7 @@ async function fetchData() {
 function processTournamentData(data) {
   const stats = {};
   const draftedTeams = new Set();
-  
+
   // Collect all teams drafted
   Object.values(TEAM_MAPPING).forEach(teams => {
     teams.forEach(t => draftedTeams.add(t));
@@ -165,47 +165,61 @@ function processTournamentData(data) {
   let completedMatchesCount = 0;
 
   // First pass: Calculate rounds reached based on team matchups
-  data.matches.forEach(m => {
-    const t1 = normalizeTeamName(m.team1);
-    const t2 = normalizeTeamName(m.team2);
-    const isPlayed = m.score && m.score.ft;
+  data.matches.forEach(match => {
+    const team1Name = normalizeTeamName(match.team1);
+    const team2Name = normalizeTeamName(match.team2);
+    const isPlayed = match.score && match.score.ft;
 
     // If team names are resolved, update their furthest round participation
-    if (t1 && stats[t1]) {
-      updateFurthestRound(t1, m.round);
-      if (!isPlayed) stats[t1].hasScheduledFutureMatch = true;
+    if (team1Name && stats[team1Name]) {
+      updateFurthestRound(team1Name, match.round);
+      if (!isPlayed) stats[team1Name].hasScheduledFutureMatch = true;
     }
-    if (t2 && stats[t2]) {
-      updateFurthestRound(t2, m.round);
-      if (!isPlayed) stats[t2].hasScheduledFutureMatch = true;
+    if (team2Name && stats[team2Name]) {
+      updateFurthestRound(team2Name, match.round);
+      if (!isPlayed) stats[team2Name].hasScheduledFutureMatch = true;
     }
 
     if (isPlayed) {
       completedMatchesCount++;
-      const g1 = m.score.ft[0];
-      const g2 = m.score.ft[1];
-      totalGoals += (g1 + g2);
 
-      if (t1 && stats[t1]) {
-        stats[t1].goals += g1;
-        stats[t1].gd += (g1 - g2);
+      // The JSON reports 4 scores, ht (half time), ft (full time), et (extra time), p (penalties)
+      console.log(`game between ${team1Name} and ${team2Name} has extra time: ${'et' in match.score}`);
+      const goalsTeam1 = 'et' in match.score ? match.score.et[0] : match.score.ft[0];
+      const goalsTeam2 = 'et' in match.score ? match.score.et[1] : match.score.ft[1];
+      totalGoals += (goalsTeam1 + goalsTeam2);
+
+      if (team1Name && stats[team1Name]) {
+        stats[team1Name].goals += goalsTeam1;
+        stats[team1Name].gd += (goalsTeam1 - goalsTeam2);
       }
-      if (t2 && stats[t2]) {
-        stats[t2].goals += g2;
-        stats[t2].gd += (g2 - g1);
+      if (team2Name && stats[team2Name]) {
+        stats[team2Name].goals += goalsTeam2;
+        stats[team2Name].gd += (goalsTeam2 - goalsTeam1);
       }
 
       // Real-time knockout advancement logic
-      const roundName = getNormalizedRound(m.round);
+      const roundName = getNormalizedRound(match.round);
       if (roundName !== "Group stage") {
         let winner = null;
         let loser = null;
-        if (g1 > g2) {
-          winner = t1;
-          loser = t2;
-        } else if (g2 > g1) {
-          winner = t2;
-          loser = t1;
+        if (goalsTeam1 > goalsTeam2) {
+          winner = team1Name;
+          loser = team2Name;
+        } else if (goalsTeam2 > goalsTeam1) {
+          winner = team2Name;
+          loser = team1Name;
+        } else if ('p' in match.score) { // game went to penalites
+          console.log("Game went to penalties");
+          const penalitesTeam1 = match.score.p[0];
+          const penalitesTeam2 = match.score.p[1];
+          if (penalitesTeam1 > penalitesTeam2) {
+            winner = team1Name;
+            loser = team2Name;
+          } else if (penalitesTeam2 > penalitesTeam1) {
+            winner = team2Name;
+            loser = team1Name;
+          }
         }
 
         if (winner && stats[winner]) {
@@ -225,7 +239,7 @@ function processTournamentData(data) {
             stats[winner].thirdPlaceWinner = true;
           }
         }
-        
+
         // Mark losers of knockout matches as eliminated
         if (loser && stats[loser]) {
           // Semi-final losers play in 3rd place match, so they aren't eliminated yet
@@ -265,13 +279,13 @@ function processTournamentData(data) {
   function calculateTeamPoints(teamName) {
     const t = stats[teamName];
     if (!t) return 0;
-    
+
     if (t.finalWinner) return 7; // Gold
     if (t.finalRunnerUp) return 6; // Silver
     if (t.furthestRound === "Final") return 6; // Reached Final, guaranteed at least Silver
     if (t.thirdPlaceWinner) return 5; // Bronze
     if (t.furthestRound === "Match for third place") return 4; // 4th place
-    
+
     const ptsMap = {
       "Group stage": 0,
       "Round of 32": 1,
@@ -279,7 +293,7 @@ function processTournamentData(data) {
       "Quarter-final": 3,
       "Semi-final": 4
     };
-    
+
     return ptsMap[t.furthestRound] || 0;
   }
 
@@ -288,30 +302,30 @@ function processTournamentData(data) {
     const teams = TEAM_MAPPING[name];
     const teamAStats = stats[teams[0]] || { name: teams[0], goals: 0, gd: 0, furthestRound: "Group stage", eliminated: false };
     const teamBStats = stats[teams[1]] || { name: teams[1], goals: 0, gd: 0, furthestRound: "Group stage", eliminated: false };
-    
+
     const ptsA = calculateTeamPoints(teams[0]);
     const ptsB = calculateTeamPoints(teams[1]);
-    
+
     const totalPoints = ptsA + ptsB;
     const totalGoals = teamAStats.goals + teamBStats.goals;
     const totalGD = teamAStats.gd + teamBStats.gd;
-    
+
     return {
       name,
       teams: [
-        { 
-          name: teams[0], 
-          round: teamAStats.furthestRound, 
-          points: ptsA, 
-          goals: teamAStats.goals, 
+        {
+          name: teams[0],
+          round: teamAStats.furthestRound,
+          points: ptsA,
+          goals: teamAStats.goals,
           gd: teamAStats.gd,
           eliminated: teamAStats.eliminated && !teamAStats.hasScheduledFutureMatch
         },
-        { 
-          name: teams[1], 
-          round: teamBStats.furthestRound, 
-          points: ptsB, 
-          goals: teamBStats.goals, 
+        {
+          name: teams[1],
+          round: teamBStats.furthestRound,
+          points: ptsB,
+          goals: teamBStats.goals,
           gd: teamBStats.gd,
           eliminated: teamBStats.eliminated && !teamBStats.hasScheduledFutureMatch
         }
@@ -393,7 +407,7 @@ function updateSummaryCards(summary) {
 function renderLeaderboard() {
   const container = document.getElementById('leaderboard-container');
   const searchQuery = document.getElementById('search-input').value.toLowerCase().trim();
-  
+
   const filtered = leaderboardData.filter(p => {
     if (!searchQuery) return true;
     const matchesName = p.name.toLowerCase().includes(searchQuery);
@@ -416,7 +430,7 @@ function renderLeaderboard() {
 
   filtered.forEach(p => {
     const clone = template.content.cloneNode(true);
-    
+
     const row = clone.querySelector('.leaderboard-item');
     const rowHeader = clone.querySelector('.row-header');
     const rankBadge = clone.querySelector('.rank-badge');
@@ -424,11 +438,10 @@ function renderLeaderboard() {
     const activeBadge = clone.querySelector('.active-badge');
     const teamsSubtext = clone.querySelector('.teams-subtext');
     const pointsVal = clone.querySelector('.points-val');
-    const chevron = clone.querySelector('.accordion-chevron');
 
     const team1 = p.teams[0];
     const team2 = p.teams[1];
-    
+
     const flag1 = FLAG_MAP[team1.name] || "🏳️";
     const flag2 = FLAG_MAP[team2.name] || "🏳️";
 
@@ -478,7 +491,7 @@ function renderLeaderboard() {
       teamANameNode.className = "team-a-name font-bold text-slate-200 text-xs tracking-tight truncate";
     }
     clone.querySelector('.team-a-round').textContent = escapeHTML(formatDisplayRound(team1.round));
-    
+
     const teamAStatusNode = clone.querySelector('.team-a-status');
     if (team1.eliminated) {
       teamAStatusNode.textContent = 'OUT';
@@ -489,7 +502,7 @@ function renderLeaderboard() {
     }
     clone.querySelector('.team-a-pts').textContent = `+${team1.points}`;
     clone.querySelector('.team-a-goals').textContent = team1.goals;
-    
+
     const gd1 = team1.gd > 0 ? `+${team1.gd}` : team1.gd;
     const teamAGDNode = clone.querySelector('.team-a-gd');
     teamAGDNode.textContent = gd1;
@@ -505,7 +518,7 @@ function renderLeaderboard() {
       teamBNameNode.className = "team-b-name font-bold text-slate-200 text-xs tracking-tight truncate";
     }
     clone.querySelector('.team-b-round').textContent = escapeHTML(formatDisplayRound(team2.round));
-    
+
     const teamBStatusNode = clone.querySelector('.team-b-status');
     if (team2.eliminated) {
       teamBStatusNode.textContent = 'OUT';
@@ -516,7 +529,7 @@ function renderLeaderboard() {
     }
     clone.querySelector('.team-b-pts').textContent = `+${team2.points}`;
     clone.querySelector('.team-b-goals').textContent = team2.goals;
-    
+
     const gd2 = team2.gd > 0 ? `+${team2.gd}` : team2.gd;
     const teamBGDNode = clone.querySelector('.team-b-gd');
     teamBGDNode.textContent = gd2;
@@ -533,7 +546,7 @@ function renderLeaderboard() {
     if (tiedWith.length > 0) {
       tiebreakerWrapper.classList.remove('hidden');
       clone.querySelector('.tiebreaker-pts-val').textContent = p.totalPoints;
-      
+
       const listContainer = clone.querySelector('.tiebreaker-list');
       listContainer.textContent = ''; // clear
 
@@ -546,7 +559,7 @@ function renderLeaderboard() {
         dot.textContent = '•';
 
         const sentenceSpan = document.createElement('span');
-        
+
         const mainManagerName = document.createElement('span');
         mainManagerName.textContent = p.name + ' ';
 
@@ -562,12 +575,12 @@ function renderLeaderboard() {
         if (diff < 0) {
           verbSpan.className = 'text-emerald-400 font-bold';
           verbSpan.textContent = 'wins';
-          
+
           sentenceSpan.appendChild(mainManagerName);
           sentenceSpan.appendChild(verbSpan);
           sentenceSpan.appendChild(document.createTextNode(' the tiebreaker over '));
           sentenceSpan.appendChild(oppName);
-          
+
           if (p.totalGoals !== o.totalGoals) {
             sentenceSpan.appendChild(document.createTextNode(` on total goals scored (${p.totalGoals} vs ${o.totalGoals}).`));
           } else {
@@ -590,7 +603,7 @@ function renderLeaderboard() {
         } else {
           verbSpan.className = 'text-amber-400 font-semibold';
           verbSpan.textContent = 'is completely tied';
-          
+
           sentenceSpan.appendChild(mainManagerName);
           sentenceSpan.appendChild(verbSpan);
           sentenceSpan.appendChild(document.createTextNode(' with '));
@@ -618,7 +631,7 @@ function toggleParticipantRow(headerElement) {
   const item = headerElement.parentElement;
   const content = item.querySelector('.accordion-wrapper');
   const chevron = headerElement.querySelector('.accordion-chevron');
-  
+
   const isOpen = content.classList.contains('is-open');
 
   // Collapse all other accordion cards
